@@ -170,90 +170,475 @@ const renderCMR = (doc: PDFKit.PDFDocument, input: ShipmentInput, hsCode: string
 
 const renderInvoice = (doc: PDFKit.PDFDocument, input: ShipmentInput, hsCode: string) => {
   const data = getInvoiceData(input, hsCode);
+  const cur = data.currency;
 
-  doc.fontSize(16).font("Helvetica-Bold").text(data.title, { align: "center" });
-  doc.moveDown(0.5);
-  doc.fontSize(10).font("Helvetica").text(`Invoice No: ${data.invoiceNumber}`);
-  doc.text(`Date: ${data.date}`);
-  doc.moveDown();
+  const PAGE_W = 595;
+  const MARGIN = 50;
+  const CW = PAGE_W - MARGIN * 2; // 495
 
-  data.fields.forEach(({ label, value }) => {
-    doc.fontSize(10).font("Helvetica-Bold").text(`${label}:`, { continued: true });
-    doc.font("Helvetica").text(` ${value}`);
-    doc.moveDown(0.3);
+  // ── Палітра ────────────────────────────────────────────────────────────────
+  const DARK_BLUE   = "#0D2B55";
+  const MID_BLUE    = "#1A508B";
+  const ACCENT      = "#2E86C1";
+  const LIGHT_BLUE  = "#EAF2FB";
+  const BORDER_GREY = "#C8D6E5";
+  const TEXT_DARK   = "#1C2833";
+  const TEXT_GREY   = "#5D6D7E";
+  const ROW_ALT     = "#F5F8FA";
+  const WHITE       = "#FFFFFF";
+
+  const fmt = (n: number) =>
+    `${cur} ${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+
+  // ── Хелпери ────────────────────────────────────────────────────────────────
+  const fillRect = (x: number, y: number, w: number, h: number, color: string) => {
+    doc.save().rect(x, y, w, h).fill(color).restore();
+  };
+
+  const strokeRect = (x: number, y: number, w: number, h: number, color = BORDER_GREY, lw = 0.5) => {
+    doc.save().rect(x, y, w, h).lineWidth(lw).stroke(color).restore();
+  };
+
+  const hline = (x: number, y: number, w: number, color = BORDER_GREY, lw = 0.5) => {
+    doc.save().moveTo(x, y).lineTo(x + w, y).lineWidth(lw).stroke(color).restore();
+  };
+
+  const vline = (x: number, y: number, h: number, color = BORDER_GREY, lw = 0.4) => {
+    doc.save().moveTo(x, y).lineTo(x, y + h).lineWidth(lw).stroke(color).restore();
+  };
+
+  // ── HEADER ─────────────────────────────────────────────────────────────────
+  fillRect(0, 0, PAGE_W, 58, DARK_BLUE);
+  fillRect(0, 58, PAGE_W, 4, ACCENT);
+
+  doc.save()
+    .fillColor(WHITE).font("Helvetica-Bold").fontSize(17)
+    .text("COMMERCIAL INVOICE", MARGIN, 18, { width: CW / 2 });
+
+  doc.fillColor("#A9CCE3").font("Helvetica").fontSize(9)
+    .text(data.invoiceNumber, MARGIN + CW / 2, 16, { width: CW / 2, align: "right" })
+    .text(`Date: ${data.date}`, MARGIN + CW / 2, 32, { width: CW / 2, align: "right" });
+  doc.restore();
+
+  let y = 74; // нижче header + stripe
+
+  // ── Секційна плашка ─────────────────────────────────────────────────────────
+  const sectionHeading = (text: string) => {
+    fillRect(MARGIN, y, CW, 22, MID_BLUE);
+    doc.save()
+      .fillColor(WHITE).font("Helvetica-Bold").fontSize(8.5)
+      .text(text.toUpperCase(), MARGIN + 10, y + 7, { width: CW - 20 })
+      .restore();
+    y += 22;
+  };
+
+  // ── Картка поля ─────────────────────────────────────────────────────────────
+  const infoCard = (
+    label: string, value: string,
+    x: number, cardY: number, w: number, bg: string
+  ) => {
+    const H = 44;
+    fillRect(x, cardY, w, H, bg);
+    strokeRect(x, cardY, w, H);
+    doc.save()
+      .fillColor(TEXT_GREY).font("Helvetica-Bold").fontSize(8)
+      .text(label, x + 10, cardY + 8, { width: w - 20 });
+    doc.fillColor(TEXT_DARK).font("Helvetica").fontSize(9)
+      .text(value, x + 10, cardY + 22, { width: w - 20, ellipsis: true });
+    doc.restore();
+    return H;
+  };
+
+  // ── PARTIES ─────────────────────────────────────────────────────────────────
+  sectionHeading("Parties");
+  y += 6;
+  const halfW = (CW - 6) / 2;
+  infoCard(data.fields[0].label, data.fields[0].value, MARGIN, y, halfW, LIGHT_BLUE);
+  infoCard(data.fields[1].label, data.fields[1].value, MARGIN + halfW + 6, y, halfW, ROW_ALT);
+  y += 44 + 10;
+
+  // ── SHIPMENT DETAILS ────────────────────────────────────────────────────────
+  sectionHeading("Shipment Details");
+  y += 6;
+  const detFields = data.fields.slice(2);
+  const detW = CW / detFields.length;
+  const detBgs = [LIGHT_BLUE, ROW_ALT, LIGHT_BLUE];
+  detFields.forEach((f, i) => {
+    infoCard(f.label, f.value, MARGIN + i * detW, y, detW, detBgs[i]);
   });
+  y += 44 + 10;
 
-  doc.moveDown();
-  doc.fontSize(10).font("Helvetica-Bold").text("Line Items:");
-  doc.moveDown(0.3);
+  // ── GOODS TABLE ─────────────────────────────────────────────────────────────
+  sectionHeading("Goods Description");
+  y += 6;
 
-  // Таблиця товарів
-  const tableTop = doc.y;
-  const colWidths = [180, 70, 50, 50, 80, 80];
-  const headers = ["Description", "HS Code", "Qty", "Unit", "Unit Price", "Total"];
+  const colRatios = [0.37, 0.13, 0.07, 0.10, 0.165, 0.165];
+  const cws = colRatios.map(r => CW * r);
+  const HEADER_H = 26;
+  const ROW_H    = 30;
 
-  headers.forEach((h, i) => {
-    const x = 50 + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
-    doc.fontSize(9).font("Helvetica-Bold").text(h, x, tableTop, { width: colWidths[i] });
+  const colHeaders = [
+    { text: "Description",  align: "left"  },
+    { text: "HS Code",      align: "left"  },
+    { text: "Qty",          align: "right" },
+    { text: "Unit",         align: "left"  },
+    { text: "Unit Price",   align: "right" },
+    { text: "Total",        align: "right" },
+  ] as const;
+
+  // Заголовок таблиці
+  fillRect(MARGIN, y, CW, HEADER_H, DARK_BLUE);
+  let cx = MARGIN;
+  colHeaders.forEach(({ text, align }, i) => {
+    doc.save()
+      .fillColor(WHITE).font("Helvetica-Bold").fontSize(8)
+      .text(text, cx + 6, y + 9, { width: cws[i] - 12, align })
+      .restore();
+    cx += cws[i];
   });
+  y += HEADER_H;
 
-  doc.moveDown(0.5);
+  // Рядки товарів
+  data.lineItems.forEach((item, ri) => {
+    const bg = ri % 2 === 0 ? "#FAFCFE" : LIGHT_BLUE;
+    fillRect(MARGIN, y, CW, ROW_H, bg);
+    hline(MARGIN, y, CW, BORDER_GREY, 0.4);
 
-  data.lineItems.forEach((item) => {
-    const rowY = doc.y;
-    const values = [
-      item.description,
-      item.hsCode,
-      String(item.quantity),
-      item.unit,
-      `€${item.unitPrice}`,
-      `€${item.total}`,
+    const rowValues = [
+      { text: item.description, align: "left"  as const },
+      { text: item.hsCode,      align: "left"  as const },
+      { text: String(item.quantity), align: "right" as const },
+      { text: item.unit,        align: "left"  as const },
+      { text: fmt(item.unitPrice),   align: "right" as const },
+      { text: fmt(item.total),       align: "right" as const },
     ];
-    values.forEach((v, i) => {
-      const x = 50 + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
-      doc.fontSize(9).font("Helvetica").text(v, x, rowY, { width: colWidths[i] });
+
+    cx = MARGIN;
+    rowValues.forEach(({ text, align }, ci) => {
+      doc.save()
+        .fillColor(TEXT_DARK).font("Helvetica").fontSize(9)
+        .text(text, cx + 6, y + 10, { width: cws[ci] - 12, align, ellipsis: true })
+        .restore();
+      cx += cws[ci];
     });
-    doc.moveDown();
+    y += ROW_H;
   });
 
-  doc.moveDown();
-  doc.fontSize(11).font("Helvetica-Bold")
-    .text(`Total: €${data.totalValue} ${data.currency}`, { align: "right" });
+  // Зовнішня рамка + вертикальні лінії
+  strokeRect(MARGIN, y - HEADER_H - ROW_H * data.lineItems.length, CW,
+             HEADER_H + ROW_H * data.lineItems.length, BORDER_GREY, 0.6);
+  cx = MARGIN;
+  cws.slice(0, -1).forEach(w => {
+    cx += w;
+    vline(cx, y - HEADER_H - ROW_H * data.lineItems.length,
+          HEADER_H + ROW_H * data.lineItems.length);
+  });
+
+  y += 8;
+
+  // ── TOTAL BAR ───────────────────────────────────────────────────────────────
+  const TOTAL_H = 36;
+  fillRect(MARGIN, y, CW, TOTAL_H, DARK_BLUE);
+  doc.save()
+    .fillColor(WHITE).font("Helvetica-Bold").fontSize(10)
+    .text("TOTAL AMOUNT DUE", MARGIN + 14, y + 12, { width: CW * 0.55 });
+  doc.font("Helvetica-Bold").fontSize(14)
+    .text(fmt(data.totalValue), MARGIN, y + 10, { width: CW - 14, align: "right" });
+  doc.restore();
+  y += TOTAL_H + 12;
+
+  // ── PAYMENT INSTRUCTIONS ────────────────────────────────────────────────────
+  sectionHeading("Payment Instructions");
+  y += 6;
+
+  const bankRows = [
+    ["Bank Name",     "Deutsche Handelsbank AG"],
+    ["IBAN",          "DE89 3704 0044 0532 0130 00"],
+    ["BIC / SWIFT",   "DHABDEHHXXX"],
+    ["Reference",     data.invoiceNumber],
+    ["Payment Terms", "Net 30 days from invoice date"],
+  ];
+  const BANK_H   = 22;
+  const labelCW  = CW * 0.28;
+  const valueCW  = CW * 0.72;
+  const bankTop  = y;
+
+  bankRows.forEach(([label, value], ri) => {
+    fillRect(MARGIN, y, CW, BANK_H, ri % 2 === 0 ? LIGHT_BLUE : WHITE);
+    hline(MARGIN, y, CW, BORDER_GREY, 0.3);
+    doc.save()
+      .fillColor(TEXT_GREY).font("Helvetica-Bold").fontSize(8)
+      .text(label, MARGIN + 10, y + 6, { width: labelCW - 14 });
+    doc.fillColor(TEXT_DARK).font("Helvetica").fontSize(9)
+      .text(value, MARGIN + labelCW + 6, y + 6, { width: valueCW - 14 });
+    doc.restore();
+    y += BANK_H;
+  });
+  strokeRect(MARGIN, bankTop, CW, BANK_H * bankRows.length);
+  vline(MARGIN + labelCW, bankTop, BANK_H * bankRows.length);
+  y += 12;
+
+  // ── DECLARATIONS ────────────────────────────────────────────────────────────
+  sectionHeading("Declarations & Certifications");
+  y += 8;
+
+  doc.save()
+    .fillColor(TEXT_GREY).font("Helvetica-Oblique").fontSize(8)
+    .text(
+      "I, the undersigned, hereby declare that the information on this invoice is true and " +
+      "correct, and that the contents of this consignment are as stated above. " +
+      `The goods are of ${data.fields[2].value} origin and comply with all applicable export regulations.`,
+      MARGIN, y, { width: CW }
+    )
+    .restore();
+  y += 36;
+
+  // Підписи
+  [[MARGIN, "Authorised Signature"], [MARGIN + CW * 0.55, "Date"]] .forEach(([sx, label]) => {
+    hline(sx as number, y + 20, 130, BORDER_GREY, 0.8);
+    doc.save()
+      .fillColor(TEXT_GREY).font("Helvetica").fontSize(8)
+      .text(label as string, sx as number, y + 24)
+      .restore();
+  });
+
+  // ── FOOTER ─────────────────────────────────────────────────────────────────
+  const footerY = 815;
+  fillRect(0, footerY, PAGE_W, 27, LIGHT_BLUE);
+  hline(0, footerY, PAGE_W, BORDER_GREY, 0.5);
+  doc.save()
+    .fillColor(TEXT_GREY).font("Helvetica").fontSize(8)
+    .text("This document is computer-generated and valid without signature.",
+          MARGIN, footerY + 9, { width: CW })
+    .restore();
 };
 
 const renderPackingList = (doc: PDFKit.PDFDocument, input: ShipmentInput) => {
   const data = getPackingListData(input);
 
-  doc.fontSize(16).font("Helvetica-Bold").text(data.title, { align: "center" });
-  doc.moveDown(0.5);
-  doc.text(`Date: ${data.date}`);
-  doc.moveDown();
+  const PAGE_W = 595;
+  const MARGIN = 50;
+  const CW = PAGE_W - MARGIN * 2;
 
-  data.fields.forEach(({ label, value }) => {
-    doc.fontSize(10).font("Helvetica-Bold").text(`${label}:`, { continued: true });
-    doc.font("Helvetica").text(` ${value}`);
-    doc.moveDown(0.3);
+  // ── Палітра ─────────────────────────────────────────────────────────────────
+  const DARK_BLUE   = "#0D2B55";
+  const MID_BLUE    = "#1A508B";
+  const ACCENT      = "#2E86C1";
+  const LIGHT_BLUE  = "#EAF2FB";
+  const BORDER_GREY = "#C8D6E5";
+  const TEXT_DARK   = "#1C2833";
+  const TEXT_GREY   = "#5D6D7E";
+  const ROW_ALT     = "#F5F8FA";
+  const WHITE       = "#FFFFFF";
+
+  // ── Хелпери ─────────────────────────────────────────────────────────────────
+  const fillRect = (x: number, y: number, w: number, h: number, color: string) => {
+    doc.save().rect(x, y, w, h).fill(color).restore();
+  };
+
+  const strokeRect = (x: number, y: number, w: number, h: number, color = BORDER_GREY, lw = 0.5) => {
+    doc.save().rect(x, y, w, h).lineWidth(lw).stroke(color).restore();
+  };
+
+  const hline = (x: number, y: number, w: number, color = BORDER_GREY, lw = 0.5) => {
+    doc.save().moveTo(x, y).lineTo(x + w, y).lineWidth(lw).stroke(color).restore();
+  };
+
+  const vline = (x: number, y: number, h: number, color = BORDER_GREY, lw = 0.4) => {
+    doc.save().moveTo(x, y).lineTo(x, y + h).lineWidth(lw).stroke(color).restore();
+  };
+
+  // ── HEADER ──────────────────────────────────────────────────────────────────
+  fillRect(0, 0, PAGE_W, 58, DARK_BLUE);
+  fillRect(0, 58, PAGE_W, 4, ACCENT);
+
+  doc.save()
+    .fillColor(WHITE).font("Helvetica-Bold").fontSize(17)
+    .text("PACKING LIST", MARGIN, 18, { width: CW / 2 });
+
+  doc.fillColor("#A9CCE3").font("Helvetica").fontSize(9)
+    .text(`Ref: PL-${Date.now()}`, MARGIN + CW / 2, 16, { width: CW / 2, align: "right" })
+    .text(`Date: ${data.date}`, MARGIN + CW / 2, 32, { width: CW / 2, align: "right" });
+  doc.restore();
+
+  let y = 74;
+
+  // ── Секційна плашка ─────────────────────────────────────────────────────────
+  const sectionHeading = (text: string) => {
+    fillRect(MARGIN, y, CW, 22, MID_BLUE);
+    doc.save()
+      .fillColor(WHITE).font("Helvetica-Bold").fontSize(8.5)
+      .text(text.toUpperCase(), MARGIN + 10, y + 7, { width: CW - 20 })
+      .restore();
+    y += 22;
+  };
+
+  // ── Картка поля ─────────────────────────────────────────────────────────────
+  const infoCard = (
+    label: string, value: string,
+    x: number, cardY: number, w: number, bg: string
+  ) => {
+    const H = 40;
+    fillRect(x, cardY, w, H, bg);
+    strokeRect(x, cardY, w, H);
+    doc.save()
+      .fillColor(TEXT_GREY).font("Helvetica-Bold").fontSize(8)
+      .text(label, x + 10, cardY + 7, { width: w - 20 });
+    doc.fillColor(TEXT_DARK).font("Helvetica").fontSize(9)
+      .text(value, x + 10, cardY + 20, { width: w - 20, ellipsis: true });
+    doc.restore();
+    return H;
+  };
+
+  // ── SHIPMENT INFO ───────────────────────────────────────────────────────────
+  sectionHeading("Shipment Information");
+  y += 6;
+
+  const halfW = (CW - 6) / 2;
+  // перші два поля поруч
+  if (data.fields.length >= 2) {
+    infoCard(data.fields[0].label, data.fields[0].value, MARGIN, y, halfW, LIGHT_BLUE);
+    infoCard(data.fields[1].label, data.fields[1].value, MARGIN + halfW + 6, y, halfW, ROW_ALT);
+    y += 40 + 6;
+  }
+  // решта полів — по три в ряд
+  const remaining = data.fields.slice(2);
+  for (let i = 0; i < remaining.length; i += 3) {
+    const chunk = remaining.slice(i, i + 3);
+    const cardW = CW / chunk.length;
+    const bgs   = [LIGHT_BLUE, ROW_ALT, LIGHT_BLUE];
+    chunk.forEach((f, ci) => {
+      infoCard(f.label, f.value, MARGIN + ci * cardW, y, cardW, bgs[ci]);
+    });
+    y += 40 + 6;
+  }
+  y += 4;
+
+  // ── PACKAGES TABLE ──────────────────────────────────────────────────────────
+  sectionHeading("Package Details");
+  y += 6;
+
+  const colDefs = [
+    { header: "#",           ratio: 0.06,  align: "center" as const },
+    { header: "Description", ratio: 0.34,  align: "left"   as const },
+    { header: "Gross Wt (kg)",ratio: 0.15, align: "right"  as const },
+    { header: "Net Wt (kg)", ratio: 0.15,  align: "right"  as const },
+    { header: "Dimensions",  ratio: 0.18,  align: "left"   as const },
+    { header: "Qty",         ratio: 0.12,  align: "right"  as const },
+  ];
+  const cws     = colDefs.map(c => CW * c.ratio);
+  const HEADER_H = 26;
+  const ROW_H    = 28;
+
+  // Заголовок таблиці
+  fillRect(MARGIN, y, CW, HEADER_H, DARK_BLUE);
+  let cx = MARGIN;
+  colDefs.forEach(({ header, align }, i) => {
+    doc.save()
+      .fillColor(WHITE).font("Helvetica-Bold").fontSize(8)
+      .text(header, cx + 5, y + 9, { width: cws[i] - 10, align })
+      .restore();
+    cx += cws[i];
+  });
+  y += HEADER_H;
+
+  // Рядки пакетів
+  const tableTop = y;
+  data.packages.forEach((pkg, ri) => {
+    fillRect(MARGIN, y, CW, ROW_H, ri % 2 === 0 ? "#FAFCFE" : LIGHT_BLUE);
+    hline(MARGIN, y, CW, BORDER_GREY, 0.4);
+
+    const cells = [
+      { text: String(pkg.number),      align: "center" as const },
+      { text: pkg.description,         align: "left"   as const },
+      { text: String(pkg.grossWeight), align: "right"  as const },
+      { text: String(pkg.netWeight),   align: "right"  as const },
+      { text: pkg.dimensions,          align: "left"   as const },
+      { text: "1",                     align: "right"  as const },
+    ];
+
+    cx = MARGIN;
+    cells.forEach(({ text, align }, ci) => {
+      doc.save()
+        .fillColor(TEXT_DARK).font("Helvetica").fontSize(9)
+        .text(text, cx + 5, y + 9, { width: cws[ci] - 10, align, ellipsis: true })
+        .restore();
+      cx += cws[ci];
+    });
+    y += ROW_H;
   });
 
-  doc.moveDown();
-  doc.fontSize(10).font("Helvetica-Bold").text("Packages:");
-  doc.moveDown(0.3);
-
-  data.packages.forEach((pkg) => {
-    doc.fontSize(10).font("Helvetica")
-      .text(`Package #${pkg.number}: ${pkg.description}`)
-      .text(`  Gross weight: ${pkg.grossWeight} kg`)
-      .text(`  Net weight: ${pkg.netWeight} kg`)
-      .text(`  Dimensions: ${pkg.dimensions}`);
-    doc.moveDown(0.5);
+  // Рамка + вертикальні лінії
+  strokeRect(MARGIN, tableTop - HEADER_H, CW, HEADER_H + ROW_H * data.packages.length, BORDER_GREY, 0.6);
+  cx = MARGIN;
+  cws.slice(0, -1).forEach(w => {
+    cx += w;
+    vline(cx, tableTop - HEADER_H, HEADER_H + ROW_H * data.packages.length);
   });
 
-  doc.moveDown();
-  doc.fontSize(10).font("Helvetica-Bold")
-    .text(`Total gross weight: ${data.totalGrossWeight} kg`)
-    .text(`Total net weight: ${data.totalNetWeight} kg`);
+  y += 8;
+
+  // ── TOTALS BAR ──────────────────────────────────────────────────────────────
+  const totals = [
+    { label: "Total Packages", value: String(data.packages.length) },
+    { label: "Total Gross Weight", value: `${data.totalGrossWeight} kg` },
+    { label: "Total Net Weight",  value: `${data.totalNetWeight} kg` },
+  ];
+  const totalColW = CW / totals.length;
+
+  fillRect(MARGIN, y, CW, 40, DARK_BLUE);
+  totals.forEach(({ label, value }, i) => {
+    const tx = MARGIN + i * totalColW;
+    doc.save()
+      .fillColor("#A9CCE3").font("Helvetica").fontSize(8)
+      .text(label.toUpperCase(), tx + 10, y + 7, { width: totalColW - 20 });
+    doc.fillColor(WHITE).font("Helvetica-Bold").fontSize(13)
+      .text(value, tx + 10, y + 19, { width: totalColW - 20 });
+    doc.restore();
+    if (i > 0) vline(tx, y, 40, "#1A508B", 1);
+  });
+  y += 40 + 12;
+
+  // ── DECLARATIONS ────────────────────────────────────────────────────────────
+  sectionHeading("Declarations & Certifications");
+  y += 8;
+
+  doc.save()
+    .fillColor(TEXT_GREY).font("Helvetica-Oblique").fontSize(8)
+    .text(
+      "I, the undersigned, hereby certify that the contents of this packing list " +
+      "are true and accurate. All packages have been packed and verified in accordance " +
+      "with applicable international trade regulations.",
+      MARGIN, y, { width: CW }
+    )
+    .restore();
+  y += 34;
+
+  // Підписи
+  const sigPairs: [number, string][] = [
+    [MARGIN, "Authorised Signature"],
+    [MARGIN + CW * 0.55, "Date"],
+  ];
+  sigPairs.forEach(([sx, label]) => {
+    doc.save().moveTo(sx, y + 20).lineTo(sx + 130, y + 20)
+      .lineWidth(0.8).stroke(BORDER_GREY).restore();
+    doc.save()
+      .fillColor(TEXT_GREY).font("Helvetica").fontSize(8)
+      .text(label, sx, y + 24)
+      .restore();
+  });
+
+  // ── FOOTER ──────────────────────────────────────────────────────────────────
+  fillRect(0, 815, PAGE_W, 27, LIGHT_BLUE);
+  hline(0, 815, PAGE_W, BORDER_GREY, 0.5);
+  doc.save()
+    .fillColor(TEXT_GREY).font("Helvetica").fontSize(8)
+    .text(
+      "This document is computer-generated and valid without signature.",
+      MARGIN, 824, { width: CW }
+    )
+    .restore();
 };
-
 export const generateShipmentDocuments = async (
   input: ShipmentInput,
   hsCode: string

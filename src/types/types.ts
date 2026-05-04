@@ -97,7 +97,7 @@ export type TransitCountryStatus = "ok" | "issue" | "assumed";
 export type TransitCountry = {
   name: string;
   status: TransitCountryStatus;
-  requirements: string[];
+  requirements?: string[];
   note?: string;
 };
 
@@ -133,6 +133,8 @@ export type AgentOutput = {
   issues: Issue[];
   crossCheck: CrossCheckField[];
   expiringCertificates: ExpiringCertificate[];
+};
+
 export type ShipmentInput = {
   origin?: string;
   destination?: string;
