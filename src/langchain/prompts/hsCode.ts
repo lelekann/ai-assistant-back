@@ -24,11 +24,11 @@ Classify this product:
 {description}
 
 Return format:
-{
+{{
   "hsCode": string,
   "description": string,
   "confidence": number
-}
+  }}
     `,
   ],
 ]);

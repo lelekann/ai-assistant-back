@@ -1,82 +1,96 @@
 import { Request, Response } from "express";
 import { z } from "zod";
-
-import { getHSCode } from "../services/ai/hsCode";
-// import { buildRoute } from "../services/shipment/route";
-// import { getRequirements } from "../services/shipment/requirements";
-// import { validateDocuments } from "../services/shipment/validation";
-// import { generateRecommendations } from "../services/ai/recommendations";
-// import { generateDocuments } from "../services/documents/generator";
+import { parseFilesForShipmentData } from "../services/ai/parseFiles";
+import { createShipmentAgent } from "../agent/shipmentAgent";
+import { ShipmentInput } from "../types/types";
+import { generateShipmentDocuments } from "../services/documents/generator";
+import { getTransitCountries } from "../services/route/geoapify";
 
 const shipmentSchema = z.object({
   origin: z.string().optional(),
   destination: z.string().optional(),
   description: z.string().optional(),
-  weight: z.number().optional(),
-  value: z.number().optional(),
+  weight: z.coerce.number().optional(),
+  value: z.coerce.number().optional(),
   shipDate: z.string().optional(),
-
   files: z.any().optional(),
 });
 
-export const processShipment = async (req: Request, res: Response) => {
+const safeParse = (text: string) => {
   try {
-    // 1. Validate input
-    const parsed = shipmentSchema.safeParse(req.body);
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    return null;
+  }
+};
 
-    if (!parsed.success) {
-      return res.status(400).json({
-        error: "Invalid input",
-        details: parsed.error.format(),
-      });
+export const processShipment = async (req: Request, res: Response) => {
+  let mcpClient;
+
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    const hasFiles = files && files.length > 0;
+
+    let input: z.infer<typeof shipmentSchema>;
+
+    if (hasFiles) {
+      input = await parseFilesForShipmentData(files);
+    } else {
+      const parsed = shipmentSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Invalid input",
+          details: parsed.error.format(),
+        });
+      }
+      input = parsed.data;
     }
 
-    const input = parsed.data;
+    // Запускаємо агента
+    const { agent, mcpClient: client } = await createShipmentAgent();
+    mcpClient = client;
 
-    // 2. HS Code 
-    const hsCode = await getHSCode(input.description as string);
+    const agentInput = `
+      Process this shipment:
+      - Product: ${input.description ?? "unknown"}
+      - Origin: ${input.origin ?? "unknown"}
+      - Destination: ${input.destination ?? "unknown"}
+      - Weight: ${input.weight ?? "unknown"} kg
+      - Value: ${input.value ?? "unknown"}
+      - Ship date: ${input.shipDate ?? "unknown"}
+    `;
 
-    // // 3. Route 
-    // const route = buildRoute(input.origin, input.destination);
+    const agentResult = await agent.invoke({
+      messages: [{ role: "user", content: agentInput }],
+    });
 
-    // // 4. Requirements (rules-based)
-    // const requirements = getRequirements({
-    //   route,
-    //   hsCode,
-    //   weight: input.weight,
-    // });
+    // Агент повертає JSON у output
+    const lastMessage = agentResult.messages[agentResult.messages.length - 1];
+    const parsed = safeParse(lastMessage?.content as string);
 
-    // // 5. Documents validation
-    // const validation = validateDocuments(requirements, {
-    //   providedDocs: [], 
-    // });
+    const documents = await generateShipmentDocuments(
+      input as ShipmentInput,
+      parsed?.hsCode?.hsCode ?? "000000",
+    );
 
-    // // 6. AI Recommendations
-    // const recommendations = await generateRecommendations({
-    //   missingDocs: validation.missing,
-    //   route,
-    //   cargo: input,
-    //   hsCode,
-    // });
+    const transitCountries = await getTransitCountries(
+      input.origin ?? "",
+      input.destination ?? "",
+    );
 
-    // // 7. Generate docs
-    // const documents = generateDocuments(validation.missing, input);
-
-    // 8. Response
     return res.json({
       input,
-      hsCode,
-      // route,
-      // requirements,
-      // validation,
-      // recommendations,
-      // documents,
+      ...parsed,
+      documents,
+      transitCountries,
     });
   } catch (error) {
     console.error("Process shipment error:", error);
-
-    return res.status(500).json({
-      error: "Internal server error",
-    });
+    return res.status(500).json({ error: "Internal server error" });
+  } finally {
+    // Закриваємо MCP з'єднання
+    if (mcpClient) await mcpClient.close();
   }
 };
