@@ -4,6 +4,7 @@ import { parseFilesForShipmentData } from "../services/ai/parseFiles";
 import { createShipmentAgent } from "../agent/shipmentAgent";
 import { ShipmentInput } from "../types/types";
 import { generateShipmentDocuments } from "../services/documents/generator";
+import { getTransitCountries } from "../services/route/geoapify";
 
 const shipmentSchema = z.object({
   origin: z.string().optional(),
@@ -48,8 +49,8 @@ export const processShipment = async (req: Request, res: Response) => {
     }
 
     // Запускаємо агента
-const { agent, mcpClient: client } = await createShipmentAgent();
-mcpClient = client;
+    const { agent, mcpClient: client } = await createShipmentAgent();
+    mcpClient = client;
 
     const agentInput = `
       Process this shipment:
@@ -61,25 +62,30 @@ mcpClient = client;
       - Ship date: ${input.shipDate ?? "unknown"}
     `;
 
-   const agentResult = await agent.invoke({
-  messages: [{ role: "user", content: agentInput }],
-});
+    const agentResult = await agent.invoke({
+      messages: [{ role: "user", content: agentInput }],
+    });
 
     // Агент повертає JSON у output
     const lastMessage = agentResult.messages[agentResult.messages.length - 1];
-const parsed = safeParse(lastMessage?.content as string);
+    const parsed = safeParse(lastMessage?.content as string);
 
-const documents = await generateShipmentDocuments(
-  input as ShipmentInput,
-  parsed?.hsCode?.hsCode ?? "000000"
-);
+    const documents = await generateShipmentDocuments(
+      input as ShipmentInput,
+      parsed?.hsCode?.hsCode ?? "000000",
+    );
+
+    const transitCountries = await getTransitCountries(
+      input.origin ?? "",
+      input.destination ?? "",
+    );
 
     return res.json({
       input,
       ...parsed,
       documents,
+      transitCountries,
     });
-
   } catch (error) {
     console.error("Process shipment error:", error);
     return res.status(500).json({ error: "Internal server error" });

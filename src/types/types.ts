@@ -20,3 +20,12 @@ export type GeneratedDocument = {
   base64: string;       
   filename: string;
 };
+
+export type TransitCountry = {
+  code: string;
+  name: string;
+  flag: string;
+  status: "ok" | "issue" | "assumed";
+  issueDescription?: string;
+  borderCrossing?: string;
+};
