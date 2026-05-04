@@ -2,6 +2,8 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { parseFilesForShipmentData } from "../services/ai/parseFiles";
 import { createShipmentAgent } from "../agent/shipmentAgent";
+import { ShipmentInput } from "../types/types";
+import { generateShipmentDocuments } from "../services/documents/generator";
 
 const shipmentSchema = z.object({
   origin: z.string().optional(),
@@ -67,9 +69,15 @@ mcpClient = client;
     const lastMessage = agentResult.messages[agentResult.messages.length - 1];
 const parsed = safeParse(lastMessage?.content as string);
 
+const documents = await generateShipmentDocuments(
+  input as ShipmentInput,
+  parsed?.hsCode?.hsCode ?? "000000"
+);
+
     return res.json({
       input,
       ...parsed,
+      documents,
     });
 
   } catch (error) {
