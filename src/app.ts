@@ -4,7 +4,6 @@ import shipmentRoute from "./routes/route";
 import ordersRoute from "./routes/orders";
 import certificatesRoute from "./routes/certificates";
 import dotenv from "dotenv";
-import cors from "cors";
 
 dotenv.config();
 
