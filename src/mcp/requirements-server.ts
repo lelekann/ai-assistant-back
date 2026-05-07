@@ -1,7 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { getRequirementsForRoute } from "../services/requirements/rules";
+import {
+  getRequirementsForRoute,
+  HS_CODE_RULES,
+  REQUIREMENTS_DB,
+} from "../services/requirements/rules";
 
 const server = new McpServer({
   name: "requirements-mcp",
@@ -19,11 +23,19 @@ server.tool(
   async ({ origin, destination, hsCode }) => {
     const rules = getRequirementsForRoute(origin, destination, hsCode);
 
+    // Визначаємо чи є реальні правила чи це дефолт
+    const key = `${origin}→${destination}`;
+    const hasSpecificRules = !!REQUIREMENTS_DB[key];
+    const hsPrefix = hsCode.slice(0, 4);
+    const hasHsRules = !!HS_CODE_RULES[hsPrefix];
+
     const checklist = rules.requiredDocs.map((doc) => ({
       id: doc.toLowerCase().replace(/\s/g, "-"),
       name: doc,
       status: "required",
-      canAutoGenerate: ["CMR", "Commercial Invoice", "Packing List"].includes(doc),
+      canAutoGenerate: ["CMR", "Commercial Invoice", "Packing List"].includes(
+        doc,
+      ),
     }));
 
     const issues = rules.requirements.map((req) => ({
@@ -47,11 +59,20 @@ server.tool(
       content: [
         {
           type: "text",
-          text: JSON.stringify({ checklist, issues, requiredDocs: rules.requiredDocs }),
+          text: JSON.stringify({
+            checklist,
+            issues,
+            requiredDocs: rules.requiredDocs,
+            dataSource: hasSpecificRules ? "database" : "default_fallback",
+            needsWebSearch: true, // ЗАВЖДИ true — web search обов'язковий
+            searchHint: hasSpecificRules
+              ? `Base rules found for ${origin}→${destination}. Verify with web search and add missing details (URLs, processing times, alternatives).`
+              : `No specific rules for ${origin}→${destination}. Web search is the PRIMARY source — find all requirements online.`,
+          }),
         },
       ],
     };
-  }
+  },
 );
 
 async function main() {
