@@ -24,7 +24,7 @@ export const mockOrders: TMSOrder[] = [
       unit: "kg",
     },
     declaredValue: {
-      amount: 10000,
+      amount: 5000,
       currency: "EUR",
     },
     carrier: {
