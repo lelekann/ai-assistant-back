@@ -4,6 +4,8 @@ import {
   chatWithOrder,
   fixCrossCheck,
   fixDocument,
+  fixDocumentHandler,
+  getOrderAnalysis,
   getOrderById,
   getOrderDocumentById,
   getOrderDocumentContent,
@@ -12,12 +14,15 @@ import {
 
 const router = Router();
 
+router.get("/:id/analysis", getOrderAnalysis);
+
 router.get("/:id", getOrderById);
 router.get("/:id/documents", getOrderDocuments);
 router.get("/:id/documents/:docId", getOrderDocumentById);
 router.get("/:id/documents/:docId/content", getOrderDocumentContent);
 router.post("/:id/analyze", analyzeOrder);
 router.patch("/:id/documents/:docId/fix", fixDocument);
+router.post("/:orderId/documents/:docId/fix", fixDocumentHandler);
 router.post("/:id/cross-check/fix", fixCrossCheck);
 router.post("/:id/chat", chatWithOrder);
 

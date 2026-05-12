@@ -1,4 +1,4 @@
-import { ExpiringCertificate, TMSDocument, TMSOrder } from "../types/types";
+import { AgentOutput, ExpiringCertificate, TMSDocument, TMSOrder } from "../types/types";
 
 export const mockOrders: TMSOrder[] = [
   {
@@ -6,25 +6,25 @@ export const mockOrders: TMSOrder[] = [
     orderNumber: "TMS-2024-4471",
     status: "in-progress",
     route: {
-      origin: "Ukraine",
-      destination: "Spain",
+      origin: "Germany",
+      destination: "Turkey",
       transitCountries: [],
     },
-    shipmentDate: "2025-05-14",
+    shipmentDate: "2026-06-11",
     product: {
       description: "Computers",
-      hsCode: "847141",
+      hsCode: "847100",
     },
     quantity: {
       amount: 500,
       unit: "pcs",
     },
     weight: {
-      amount: 820,
+      amount: 300,
       unit: "kg",
     },
     declaredValue: {
-      amount: 8000,
+      amount: 10000,
       currency: "EUR",
     },
     carrier: {
@@ -39,105 +39,137 @@ export const mockDocuments: Record<string, TMSDocument[]> = {
   "1": [
     {
       id: "doc-1",
-      name: "CMR Draft.pdf",
+      name: "CMR_Consignment_Note.pdf",
       uploadDate: "2025-05-12",
-      status: "error",
+      status: "pending",
       generatedByAI: false,
     },
     {
       id: "doc-2",
-      name: "Commercial Invoice.pdf",
+      name: "Commercial_Invoice.pdf",
       uploadDate: "2025-05-12",
-      status: "error",
+      status: "pending",
       generatedByAI: false,
     },
     {
       id: "doc-3",
-      name: "Packing List.pdf",
+      name: "Packing_List.pdf",
       uploadDate: "2025-05-11",
-      status: "error",
+      status: "pending",
       generatedByAI: false,
     },
   ],
 };
 
 export const mockDocumentFiles: Record<string, string> = {
-  "doc-1": "src/storage/TMS-2024-4471/original/CMR.png",
-  "doc-2": "src/storage/TMS-2024-4471/original/image.png",
-  "doc-3": "src/storage/TMS-2024-4471/original/packing_list.png",
+  "doc-1": "src/storage/TMS-2024-4471/original/CMR_Consignment_Note.pdf",
+  "doc-2": "src/storage/TMS-2024-4471/original/Commercial_Invoice.pdf",
+  "doc-3": "src/storage/TMS-2024-4471/original/Packing_List.pdf",
 };
 
-// export const mockAnalysis: Record<string, AnalysisResult> = {
-//   "1": {
-//     checklist: [
-//       { id: "cl-001", name: "CMR Draft", status: "error", note: "Unit of measure mismatch" },
-//       { id: "cl-002", name: "Commercial Invoice", status: "error", note: "Quantity unit inconsistent" },
-//       { id: "cl-003", name: "Packing List", status: "pending" },
-//       { id: "cl-004", name: "TIR Carnet", status: "required", note: "Required for Bulgaria non-EU transit" },
-//       { id: "cl-005", name: "EUR.1 Movement Certificate", status: "conditional", note: "Required for preferential tariff" },
-//     ],
-//     issues: [
-//       {
-//         id: "iss-001",
-//         severity: "blocker",
-//         message: "TIR carnet required for Bulgarian transit — vehicle not registered in TIR system. Border crossing: Kapitan Andreevo.",
-//       },
-//       {
-//         id: "iss-002",
-//         severity: "warning",
-//         message: "ADR certificate for driver J. Kowalski expires 22 May — renewal required before shipment date.",
-//       },
-//       {
-//         id: "iss-003",
-//         severity: "warning",
-//         message: "CMR Draft: unit of measure is 'pcs' but Commercial Invoice uses 'pieces' — documents must be consistent.",
-//         documentId: "doc-1",
-//         field: "quantity.unit",
-//       },
-//     ],
-//     crossCheck: [
-//       {
-//         field: "quantity.unit",
-//         documentA: "Commercial Invoice",
-//         documentB: "CMR Draft",
-//         valueA: "pieces",
-//         valueB: "pcs",
-//         conflict: true,
-//       },
-//       {
-//         field: "declaredValue.amount",
-//         documentA: "Commercial Invoice",
-//         documentB: "Packing List",
-//         valueA: "8000",
-//         valueB: "8000",
-//         conflict: false,
-//       },
-//     ],
-//     transitCountries: [
-//       { name: "Czech Republic", status: "ok", requirements: [] },
-//       { name: "Slovakia", status: "ok", requirements: [] },
-//       { name: "Hungary", status: "assumed", requirements: [] },
-//       { name: "Romania", status: "ok", requirements: [] },
-//       {
-//         name: "Bulgaria",
-//         status: "issue",
-//         requirements: ["TIR carnet"],
-//         note: "TIR carnet required for non-EU transit. Vehicle not registered in TIR system. Border crossing: Kapitan Andreevo.",
-//       },
-//     ],
-//     carrierVerification: {
-//       status: "warning",
-//       issues: ["ADR certificate expires 22 May — renewal required before shipment date of 2025-05-14"],
-//     },
-//   },
-// };
+export const mockAgentOutput: Record<string, AgentOutput> = {
+  "1": {
+    orderId: "1",
+    status: "error",
+    summary:
+      "Shipment TMS-2024-4471 has critical compliance issues that must be resolved before departure. TIR Carnet is missing for Bulgarian transit, and a unit-of-measure mismatch was detected across documents.",
+    documentChecklist: [
+      { id: "cl-001", name: "CMR Draft", status: "error", note: "Unit of measure mismatch — must match Commercial Invoice" },
+      { id: "cl-002", name: "Commercial Invoice", status: "error", note: "Quantity unit inconsistent with CMR Draft" },
+      { id: "cl-003", name: "Packing List", status: "pending" },
+      { id: "cl-004", name: "TIR Carnet", status: "required", note: "Required for Bulgaria non-EU transit" },
+      { id: "cl-005", name: "EUR.1 Movement Certificate", status: "conditional", note: "Required for preferential tariff rates" },
+    ],
+    issues: [
+      {
+        id: "iss-001",
+        severity: "blocker",
+        title: "TIR Carnet Missing",
+        what: "TIR carnet is required for Bulgarian transit but the vehicle is not registered in the TIR system.",
+        time: "Before departure on 2025-05-14",
+        where: "Kapitan Andreevo border crossing, Bulgaria",
+        whereLink: "https://maps.google.com/?q=Kapitan+Andreevo+border+crossing",
+        risk: "Shipment will be stopped at the Bulgarian border and turned back.",
+        alternative: {
+          route: "Re-route via Romania → Serbia → North Macedonia → Greece → Spain (ferry)",
+          additionalTime: "+2 days",
+          additionalCost: "+€420",
+        },
+      },
+      {
+        id: "iss-002",
+        severity: "warning",
+        title: "ADR Certificate Expiring Soon",
+        what: "ADR certificate for driver J. Kowalski expires 22 May 2025 — before the shipment date.",
+        time: "Expires 22 May 2025",
+        where: "Carrier: DB Schenker / Driver: J. Kowalski",
+        whereLink: "",
+        risk: "Driver may be prohibited from transporting regulated goods after expiry.",
+      },
+      {
+        id: "iss-003",
+        severity: "warning",
+        title: "Unit of Measure Mismatch",
+        what: "CMR Draft uses 'pcs' while Commercial Invoice uses 'pieces' — documents must be consistent.",
+        time: "Detected during document cross-check",
+        where: "CMR Draft vs. Commercial Invoice",
+        whereLink: "",
+        risk: "Customs clearance may be delayed or rejected due to inconsistent documentation.",
+      },
+    ],
+    crossCheck: [
+      {
+        field: "quantity.unit",
+        documentA: "Commercial Invoice",
+        documentB: "CMR Draft",
+        valueA: "pieces",
+        valueB: "pcs",
+        conflict: true,
+      },
+      {
+        field: "declaredValue.amount",
+        documentA: "Commercial Invoice",
+        documentB: "Packing List",
+        valueA: "8000",
+        valueB: "8000",
+        conflict: false,
+      },
+    ],
+    transitCountries: [
+      { name: "Czech Republic", status: "ok" },
+      { name: "Slovakia", status: "ok" },
+      { name: "Hungary", status: "assumed", note: "Route through Hungary is assumed — confirm with carrier" },
+      { name: "Romania", status: "ok" },
+      {
+        name: "Bulgaria",
+        status: "issue",
+        requirements: ["TIR Carnet"],
+        note: "TIR carnet required for non-EU transit. Vehicle not registered in TIR system. Border crossing: Kapitan Andreevo.",
+      },
+    ],
+    carrier: {
+      status: "warning",
+      issues: ["ADR certificate for J. Kowalski expires 22 May — renewal required before shipment date of 2025-05-14"],
+    },
+    expiringCertificates: [
+      {
+        id: "cert-1",
+        name: "ADR Certificate",
+        holder: "J. Kowalski (Driver)",
+        daysRemaining: 8,
+        affectedOrders: ["TMS-2024-4471"],
+        acknowledged: false,
+      },
+    ],
+  },
+};
 
 export const mockCertificates: ExpiringCertificate[] = [
   {
     id: "cert-1",
     name: "ADR Certificate",
     holder: "J. Kowalski (Driver)",
-    daysRemaining: 45,
+    daysRemaining: 10,
     affectedOrders: ["TMS-2024-4471", "TMS-2024-4472"],
     acknowledged: false,
   },
@@ -145,7 +177,7 @@ export const mockCertificates: ExpiringCertificate[] = [
     id: "cert-2",
     name: "Cargo Insurance Policy",
     holder: "DB Schenker",
-    daysRemaining: 50,
+    daysRemaining: 5,
     affectedOrders: ["TMS-2024-4471"],
     acknowledged: false,
   },

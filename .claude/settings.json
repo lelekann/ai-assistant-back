@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx ts-node *)",
+      "Bash(curl -s -X POST http://localhost:3001/api/orders/1/analyze)",
+      "Bash(pkill -f \"ts-node src/server.ts\")",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(python3 -m json.tool)",
+      "Bash(node -e \"const m = require\\('./node_modules/pdf-parse'\\); console.log\\(typeof m\\); console.log\\(Object.keys\\(m\\).slice\\(0,10\\)\\)\")",
+      "Bash(node -e ' *)"
+    ]
+  }
+}

@@ -4,7 +4,11 @@ export type HSFallbackRule = {
   description: string;
 };
 
-export type TMSOrderStatus = "draft" | "in-progress" | "completed" | "cancelled";
+export type TMSOrderStatus =
+  | "draft"
+  | "in-progress"
+  | "completed"
+  | "cancelled";
 
 export type TMSOrder = {
   id: string;
@@ -47,6 +51,7 @@ export type TMSDocument = {
   uploadDate: string;
   status: TMSDocumentStatus;
   generatedByAI?: boolean;
+  fixedAt?: string;
 };
 
 export type ChecklistItemStatus =
@@ -148,11 +153,11 @@ export type GeneratedDocument = {
   id: string;
   name: string;
   status: "generated";
-  base64: string;       
+  base64: string;
   filename: string;
 };
 
-export type TransitCountry = {
+export type RouteCountry = {
   code: string;
   name: string;
   flag: string;
