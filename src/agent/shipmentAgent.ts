@@ -27,32 +27,10 @@ const classifyHsCodeTool = tool(
   }
 );
 
-const generateDocumentsTool = tool(
-  async ({ input, hsCode }: { input: ShipmentInput; hsCode: string }) => {
-    const docs = await generateShipmentDocuments(input, hsCode);
-    return JSON.stringify(docs.map((d) => ({ id: d.id, name: d.name, status: d.status, filename: d.filename })));
-  },
-  {
-    name: "generate_documents",
-    description: "Generates CMR, Commercial Invoice and Packing List PDF documents for the shipment",
-    schema: z.object({
-      input: z.object({
-        origin: z.string().optional(),
-        destination: z.string().optional(),
-        description: z.string().optional(),
-        weight: z.number().optional(),
-        value: z.number().optional(),
-        shipDate: z.string().optional(),
-      }),
-      hsCode: z.string(),
-    }),
-  }
-);
-
 const searchRequirementsTool = tool(
   async ({ query }: { query: string }) => {
     const result = await tavilyClient.search(query, {
-      maxResults: 5,
+      maxResults: 3,
       searchDepth: "advanced",
     });
     return JSON.stringify(
@@ -87,18 +65,29 @@ STEP 2 — get_shipment_requirements
 Use MCP tool with origin country name, destination country name, and HS code.
 This returns base rules from database. Always use these as starting point.
 
-STEP 3 — search_requirements (ALWAYS REQUIRED, run multiple searches)
-Run ALL of the following searches, no exceptions:
+
+STEP 3 — search_requirements (ALWAYS REQUIRED)
+You have been given: origin, destination, and transit countries.
+Run the following searches:
 
 Search A: "[destination country] customs import [goods description] required documents [current year]"
 Search B: "HS [hsCode] import [destination country] certificates restrictions"
-Search C (always for non-EU destination like Turkey, Serbia, Morocco, etc.): 
-  "[destination country] import license requirements [goods type] 2024 2025"
-Search D (if HS code starts with 01–24, food/agriculture/wood): 
-  "phytosanitary certificate [destination country] [goods type] how to get where apply"
-Search E (if HS code starts with 84–85, electronics): 
-  "ADR dangerous goods transport [goods type] [origin] [destination] certificate"
-Search F: "[origin country] [destination country] trade documents certificate of origin EUR1"
+
+For EACH transit country (e.g. Hungary, Serbia, Bulgaria):
+Search T: "[transit country] transit permit requirements [goods type] truck [current year]"
+  — Look for: transit visas, cabotage rules, ADR transit requirements, 
+    special permits for certain goods, border crossing documentation
+
+Search C (if destination is non-EU): 
+  "[destination country] import license [goods type] 2025"
+Search D (if HS 01–24): 
+  "phytosanitary certificate [destination country] [goods type] requirements"
+Search E (if HS 84–85): 
+  "ADR lithium battery transport [goods type] transit [transit countries] requirements"
+
+For transit country issues found — add them to issues array with:
+- severity: "warning" (transit issues rarely fully block, but cause delays)
+- note which specific transit country the issue applies to in the "title"
 
 From web search results extract:
 - Specific authority names with their websites/URLs (e.g. "Turkish Ministry of Agriculture — https://tarim.gov.tr")
@@ -107,10 +96,7 @@ From web search results extract:
 - Alternative solutions mentioned
 - Any restrictions or prohibitions
 
-STEP 4 — generate_documents
-Generate CMR, Commercial Invoice and Packing List.
-
-STEP 5 — Build final response
+STEP 4 — Build final response
 Merge MCP base rules + web search findings:
 - Start with MCP checklist and issues as base
 - Add any NEW requirements found via web search
@@ -183,9 +169,18 @@ export const createShipmentAgent = async () => {
 
   const agent = createReactAgent({
     llm: model,
-    tools: [classifyHsCodeTool, searchRequirementsTool, generateDocumentsTool, ...mcpTools],
+    tools: [classifyHsCodeTool, searchRequirementsTool, ...mcpTools],
     prompt: AGENT_SYSTEM_PROMPT,
   });
 
   return { agent, mcpClient };
+};
+
+let agentInstance: Awaited<ReturnType<typeof createShipmentAgent>> | null = null;
+
+export const getShipmentAgent = async () => {
+  if (!agentInstance) {
+    agentInstance = await createShipmentAgent();
+  }
+  return agentInstance;
 };
